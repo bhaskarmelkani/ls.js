@@ -1,2 +1,4 @@
-# localstorage
-Intelligent Local Storage
+hashJs
+======
+
+For local storage
