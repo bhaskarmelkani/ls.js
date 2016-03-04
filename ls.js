@@ -1,20 +1,77 @@
-ls = (function(){
-  var ls = localStorage;
-  var _metaData = localStorage.metaData ? JSON.parse(localStorage.metaData) : {}, _tos_time = +localStorage.tos_time || 0, cron = null;
-  localStorage.setItem('metaData', JSON.stringify(_metaData));
-  localStorage.setItem('tos_time', _tos_time);
+/*
+ * @ls.js
+ * Wrapper for modifying Local Storage.
+ *
+ * Supports ttl.(Time to live).
+ *
+ * @description
+ *
+ * {Object} metaData: This data structure stores an associative array of expiry times(Epoch) and keys expiring at those times.
+ *                    So if x is expiring at epoch = 10, y is at epoch = 15 and z is at epoch 10. metadata will be {10: [x,z], 15:y}
+ *
+ * {String} tosTime: Minimum epoch time that is stored in metaData. The time of key that will be deleted first.
+ *
+ * A cron(using setTimeout) is registerd to delete the key with death time equal tosTime. And this is set when the function is executed.
+ *
+ */
+var ls = (function(){
+  'use strict';
 
-  window.metaData = _metaData;
-  window.tos_time = _tos_time;
+  /*
+   *  Variables.
+   *  @metaData: For storing metaData in localstorage.
+   *  @tosTime: The latest time at which some localStorage variable is to be deleted.
+   *  @cron: For storing instance of window.setTimeout.
+   *
+   */
+  var ls = window.localStorage,
+    metaData,
+  tosTime,
+  cron;
 
+  /*
+   *  Check if we aleady have metaData in localStorage.
+   *  If not create and object and set it to localStorage.
+   *
+   */
+  if(metaData = ls.getItem('__metaData')){
+    metaData = JSON.parse(metaData);
+  }else{
+    metaData = {};
+    ls.setItem('__metaData', JSON.stringify(metaData));
+  }
+
+  /*
+   *
+   * Check if we already have tosTime in localStorage.
+   * If not initialize it with 0 and also save in localStorage.
+   *
+   */
+
+  if(tosTime = ls.getItem('__tosTime')){
+    x = +x;
+  }else{
+    tosTime = 0;
+    ls.setItem('__tosTime', tosTime);
+  }
+
+
+  /*
+   *  @deleteMetaData
+   *
+   *  Function to delete metaData stored for a key.
+   *
+   *  @param: key - Key whose metaData is to be deleted.
+   *
+   */
   var deleteMetaData = function(key){
-    for (var j in metaData){ 
+    for (var j in metaData){
       if(typeof metaData[j] == 'object' && typeof metaData[j].indexOf == 'function'){
-        // its an array
-        var _arr = metaData[j], _len = _arr.length;
-        for (var i = _len - 1; i >= 0; i--) {
-          if(_arr[i] == key){
-            _arr.splice(i,1);
+        var arr = metaData[j],
+          len = arr.length;
+        for (var i = len - 1; i >= 0; i--) {
+          if(arr[i] == key){
+            arr.splice(i,1);
             break;
           }		
         };	
@@ -23,99 +80,122 @@ ls = (function(){
         break;
       }
     }
-    if(tos_time = key){
+    if(tosTime = key){
       resetTosTime();
     }
-    //reset settimeout if it is actie
   };
 
-  var setItem = function(key, value, time){ 
-    //if the key already exists
-    //delte its metadata or update it ... also see the consequence
-    if(localStorage.getItem(key) && time){   //if key is already present and expiry time is specified
-      //remove the key
-      console.log('key already present deleting it');
+  /*
+   *  @setItem
+   *
+   *  Function to set key/value in localStorage and saving a trigger to delete the key at an specified time.
+   *
+   *  @param key - Key to save in localStorage.
+   *  @param value - Value of the key.
+   *  @param time - Time to live for the key. Provided in milliseconds.
+   *
+   */
+  var setItem = function(key, value, time){
+    if(ls.getItem(key) && time){
       deleteMetaData(key);
     }
     ls.setItem(key, value);
     if(!time){
       return;
     }
-    var _abs_time = new Date().getTime() + time;		
-    if(typeof metaData[_abs_time] == 'object' && typeof metaData[_abs_time].indexOf == 'function'){ 
-      metaData[_abs_time].push(key);
-
-    }else if(metaData[_abs_time]){ 
-      var tempVal = metaData[_abs_time];	
-      metaData[_abs_time] = [tempVal, key];	
-    }else{ 
-      metaData[_abs_time] = key;	
+    var absTime = new Date().getTime() + time;
+    if(typeof metaData[absTime] == 'object' && typeof metaData[absTime].indexOf == 'function'){
+      metaData[absTime].push(key);
+    }else if(metaData[absTime]){
+      var tempVal = metaData[absTime];
+      metaData[absTime] = [tempVal, key];
+    }else{
+      metaData[absTime] = key;
     }
-    if(_abs_time < tos_time || tos_time == 0){   
-      tos_time = _abs_time;
-
-      cron_fn(tos_time);
-      localStorage.setItem('tos_time', tos_time);	
+    if(absTime < tosTime || tosTime == 0){
+      tosTime = absTime;
+      cronFn(tosTime);
+      ls.setItem('__tosTime', tosTime);
     }
-    localStorage.setItem('metaData', JSON.stringify(metaData));
+    ls.setItem('__metaData', JSON.stringify(metaData));
   };
 
-  var cron_fn = function(abs_time){
-
-    var _curr_time = new Date().getTime();
+  /*
+   * @cronFn
+   *
+   * Function to set a cron using setTimeout, this is responsible for deleting the key/s which have death time equals to tosTime.
+   *
+   *
+   */
+  var cronFn = function(absTime){
+    var currTime = new Date().getTime();
     if(cron){
       window.clearTimeout(cron);
     }
-    cron = window.setTimeout(kill_item, abs_time - _curr_time );
+    cron = window.setTimeout(killItem, absTime - currTime );
   };
 
 
+  /*
+   * @resetTosTime
+   *
+   * Function to set tosTime. This is the minimum of all Epoch times in metaData.
+   *
+   */
   var resetTosTime = function(){
-    tos_time = 0;
+    tosTime = 0;
     var j;
     for(j in metaData){
-      if(tos_time == 0 || j < tos_time){
-        tos_time = j;
+      if(tosTime == 0 || j < tosTime){
+        tosTime = j;
       }
     }
-    cron_fn(tos_time);
+    cronFn(tosTime);
   };
 
-  var kill_item = function(){
-    var _key = metaData[tos_time];
-    if(typeof _key == 'object' && typeof _key.indexOf == 'function'){
-      var _length = _key.length;
-      for (var i = _len - 1; i >= 0; i--) {
-        localStorage.removeItem(_key[i]);
-        console.log('Killing Item: '+_key[i]+ 'Expire Time: '+ tos_time + "Current time: "+ new Date().getTime() );	
+  /*
+   *  @killItem
+   *
+   *  Function responsible for killing the item(deleteting it from localStorage), when its time to live if over.
+   *  It kills the object with death time(Epoch) equal to tosTime.
+   *
+   */
+  var killItem = function(){
+    var key = metaData[tosTime];
+    if(typeof key == 'object' && typeof key.indexOf == 'function'){
+      var length = key.length;
+      for (var i = len - 1; i >= 0; i--) {
+        ls.removeItem(key[i]);
       };
     }else{
-      localStorage.removeItem(_key);
-      console.log('Killing Item: '+_key+ 'Expire Time: '+ tos_time + "Current time: "+ new Date().getTime() );	
+      ls.removeItem(key);
     }
-    delete metaData[tos_time];
-
-    tos_time = 0;
+    delete metaData[tosTime];
+    tosTime = 0;
     var j;
     for(j in metaData){
-      if(tos_time == 0 || j < tos_time){
-        tos_time = j;
+      if(tosTime == 0 || j < tosTime){
+        tosTime = j;
       }
     }
-
-    if(tos_time > 0  && metaData[tos_time]  && (typeof localStorage[metaData[tos_time]] !== 'undefined') ){
-      cron_fn(tos_time);		
+    if(tosTime > 0  && metaData[tosTime]  && (typeof ls[metaData[tosTime]] !== 'undefined') ){
+      cronFn(tosTime);
     }
-
-    localStorage.setItem('metaData', JSON.stringify(metaData));
-    localStorage.setItem('tos_time', tos_time);
+    ls.setItem('metaData', JSON.stringify(metaData));
+    ls.setItem('tosTime', tosTime);
   };
 
-  if(tos_time > 0){
-    cron_fn(tos_time);
+  /*
+   *  Initialize the cron to kill an item with lowest tosTime.
+   *
+   */
+  if(tosTime > 0){
+    cronFn(tosTime);
   }
 
   return {
-    'setItem': setItem
+    'setItem': setItem,
+    'getItem': ls.getItem,
+    'removeItem': ls.removeItem
   }
 })();
