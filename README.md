@@ -14,6 +14,8 @@ when you dont want any ttl
 
 ```ls.setItem('a','b');```
 
+##### NOTE: The ttl will persist even if the browser is closed. 
+
 ### To get item from localStorage.
 
 ```ls.getItem('a');```
